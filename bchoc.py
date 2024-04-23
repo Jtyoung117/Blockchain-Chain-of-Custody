@@ -3,6 +3,7 @@
 import argparse
 import os
 import struct
+import sys
 
 parser = argparse.ArgumentParser()
 parser.add_argument("command")
@@ -67,6 +68,7 @@ def main():
         print("genesis block created.")
     else:
         print("blockchain already exists.")
+        sys.exit(44)
 
 if __name__ == "__main__":
     main()
