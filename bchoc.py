@@ -10,12 +10,12 @@ parser.add_argument('-n')
 parser.add_argument('-y', '--why')
 parser.add_argument('-p')
 parser.add_argument('-g')
-action = args.action
+action = parser.parse_args()
 
 # get the file path from the environment variable
 #file_path = os.getenv('BCHOC_FILE_PATH')
 
-block_format = struct.Struct("32s 8s 32s 32s 12s 12s I 14s")
+structformat = "32s d 32s 32s 12s 12s 12s I"
 
 # get the file path from the environment variable
 def get_file_path():
@@ -32,16 +32,20 @@ def check_existing_blocks(file_path):
 
 # construct genesis block
 def create_genesis_block(file_path):
+    
+    dynamicformat = structformat + " 14s"
+    block_format = struct.Struct(dynamicformat)
+    
     with open(file_path, "wb") as file:
         # genesis block data
         prev_hash = b"\0" * 32
-        timestamp = b"\0" * 8
+        timestamp = 0
         case_id = b"0" * 32
         evidence_id = b"0" * 32
         state = b"INITIAL\0\0\0\0\0"
         creator = b"\0" * 12
         owner = b"\0" * 12
-        d_length = struct.pack("I", 14)
+        d_length = 14
         data = b"Initial block\0"
         
         # Pack data into binary format
