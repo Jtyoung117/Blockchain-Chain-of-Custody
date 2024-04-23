@@ -15,6 +15,7 @@ action = parser.parse_args()
 # get the file path from the environment variable
 #file_path = os.getenv('BCHOC_FILE_PATH')
 
+#struct format string, need to add data field dynamically
 structformat = "32s d 32s 32s 12s 12s 12s I"
 
 # get the file path from the environment variable
@@ -32,7 +33,7 @@ def check_existing_blocks(file_path):
 
 # construct genesis block
 def create_genesis_block(file_path):
-    
+    #length is known to be 14 for genesis block, so 14 bytes added for data
     dynamicformat = structformat + " 14s"
     block_format = struct.Struct(dynamicformat)
     
