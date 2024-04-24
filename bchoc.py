@@ -148,15 +148,23 @@ def check_genesis_block(file_path):
 
 def countblocks(file_path):
     numblocks = 0
+    currentbyte = 0
     with open(file_path, "rb") as file:
+        if check_genesis_block(file_path):
+            numblocks += 1
+        else:
+            return numblocks
+        partialblock = struct.Struct(structformat)
+        file.seek(partialblock.size + 14)
+        currentbyte += partialblock.size + 14
+        block_data = file.read(partialblock.size)
         while True:
-            partialblock = struct.Struct(structformat)
-            block_data = file.read(partialblock.size)
             if not block_data:
                 break  # Reached end of file
-            prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
-            file.seek(partialblock.size + dlength)
             numblocks += 1
+            currentbyte += partialblock.size
+            file.seek(currentbyte)
+            block_data = file.read(partialblock.size)
         return numblocks
 
 def get_deepest_previous_hash(file_path):
@@ -242,7 +250,7 @@ def addcase(file_path):
                 evidence_int = int(i)
                 hexid = evidence_int.to_bytes(16, byteorder='big')
                 evidence_id = encrypt_aes_ecb(hexid)
-                state = b"CHECKEDIN\0\0"
+                state = b"CHECKEDIN\0\0\0"
                 d_length = 0
                 data = b""
                 owner = b"\0\0\0\0\0\0\0\0\0\0\0\0"
@@ -278,7 +286,7 @@ def addcase(file_path):
                 evidence_int = int(i)
                 hexid = evidence_int.to_bytes(16, byteorder='big')
                 evidence_id = encrypt_aes_ecb(hexid)
-                state = b"CHECKEDIN\0\0"
+                state = b"CHECKEDIN\0\0\0"
                 d_length = 0
                 data = b""
                 owner = b"\0\0\0\0\0\0\0\0\0\0\0\0"
