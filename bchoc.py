@@ -74,19 +74,25 @@ args = parser.parse_args()
 #struct format string, need to add data field dynamically
 structformat = "32s d 32s 32s 12s 12s 12s I"
 
+
+
+# Define the VALID_PASSWORDS dictionary dynamically
+#passwords = {key: os.environ.get(f"BCHOC_PASSWORD_{key}", None) for key in PASSWORD_KEYS}
+
+
 # get the file path from the environment variable
 def get_file_path():
-    # file_path = os.getenv("BCHOC_FILE_PATH")
-    # if file_path:
-    #     return file_path
-    # else:
-    #     exit(1)
+    file_path = os.getenv("BCHOC_FILE_PATH")
+    if file_path:
+        return file_path
+    else:
+        exit(1)
         #replace with your local path for testing
-        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-        blockchain_folder_path = os.path.join(desktop_path, "Blockchain")
-        if not os.path.exists(blockchain_folder_path):
-            os.makedirs(blockchain_folder_path)  # Create the folder if it doesn't exist
-        return os.path.join(blockchain_folder_path, "blockchain.dat")
+        # desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        # blockchain_folder_path = os.path.join(desktop_path, "Blockchain")
+        # if not os.path.exists(blockchain_folder_path):
+        #     os.makedirs(blockchain_folder_path)  # Create the folder if it doesn't exist
+        # return os.path.join(blockchain_folder_path, "blockchain.dat")
 
 # check for blocks
 def check_existing_blocks(file_path):
@@ -177,8 +183,6 @@ def isotime():
 def floattime():
     fltime = float(time.time())
     return fltime
-    
-
 
 import binascii
 def encrypt_aes_ecb(plaintext):
@@ -201,6 +205,10 @@ def decrypt_aes_ecb(ciphertext):
 
 #add a case
 def addcase(file_path):
+
+    if args.p != CREATOR_PASSWORD:
+        exit("incorrect password")
+    
     for i in args.i:        
         if countblocks(file_path) == 1:
             with open(file_path, "ab") as file:
@@ -229,7 +237,7 @@ def addcase(file_path):
                 # print("Timestamp:", floattime())
                 # print("Case ID:", case_id)
                 # print("Evidence ID:", evidence_id)
-                print("State:", state)
+                #print("State:", state)
                 # print("Creator:", args.g)
                 # print("Owner:", owner)
                 # print("Data Length:", d_length)
@@ -264,7 +272,7 @@ def addcase(file_path):
                 # print("Timestamp:", floattime())
                 # print("Case ID:", case_id)
                 # print("Evidence ID:", evidence_id)
-                print("State:", state)
+                #print("State:", state)
                 # print("Creator:", args.g)
                 # print("Owner:", owner)
                 # print("Data Length:", d_length)
@@ -277,12 +285,18 @@ def addcase(file_path):
     isotime()
 
 
-
+POLICE_PASSWORD = os.environ.get("BCHOC_PASSWORD_POLICE")
+LAWYER_PASSWORD = os.environ.get("BCHOC_PASSWORD_LAWYER")
+ANALYST_PASSWORD = os.environ.get("BCHOC_PASSWORD_ANALYST")
+EXECUTIVE_PASSWORD = os.environ.get("BCHOC_PASSWORD_EXECUTIVE")
+CREATOR_PASSWORD = os.environ.get("BCHOC_PASSWORD_CREATOR")
 
 
 
 def main():
     file_path = get_file_path()
+
+    
     
     if args.command == "init":
         if check_genesis_block(file_path):
@@ -295,7 +309,7 @@ def main():
         # gotta check project doc
         if not check_existing_blocks(file_path):
             create_genesis_block(file_path)
-            addcase(file_path)
+            addcase(file_path, )
         else:
             addcase(file_path)
 
