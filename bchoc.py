@@ -11,18 +11,6 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from uuid import UUID
 
-#parser = argparse.ArgumentParser()
-#parser.add_argument("command")
-#parser.add_argument('-c') # case_id
-#parser.add_argument('-i', action='append') # item_id
-#parser.add_argument('-n') # num entries
-#parser.add_argument('-y', '--why') # reason for removal
-#parser.add_argument('-p') # password
-#parser.add_argument('-r') # reverse entries
-#parser.add_argument('-o') # owner
-#parser.add_argument('-g') # creator
-#action = parser.parse_args()
-
 AES_KEY = b"R0chLi4uLi4uLi4="
 
 parser = argparse.ArgumentParser()
@@ -33,7 +21,7 @@ subparsers = parser.add_subparsers(dest="command")
 # 'add' command
 ad_parser = subparsers.add_parser("add")
 ad_parser.add_argument('-c', type=str, help="Case ID")
-ad_parser.add_argument('-i', action='append', required=True, help="Item ID")
+ad_parser.add_argument('-i', nargs='+', required=True, help="Item ID")
 ad_parser.add_argument('-g', type=str, required=True, help="Creator")
 ad_parser.add_argument('-p', type=str, required=True, help="Password")
 
@@ -88,12 +76,17 @@ structformat = "32s d 32s 32s 12s 12s 12s I"
 
 # get the file path from the environment variable
 def get_file_path():
-    file_path = os.getenv("BCHOC_FILE_PATH")
-    if file_path:
-        return file_path
-    else:
-        # replace with your local path for testing
-        return
+    # file_path = os.getenv("BCHOC_FILE_PATH")
+    # if file_path:
+    #     return file_path
+    # else:
+    #     exit(1)
+        #replace with your local path for testing
+        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        blockchain_folder_path = os.path.join(desktop_path, "Blockchain")
+        if not os.path.exists(blockchain_folder_path):
+            os.makedirs(blockchain_folder_path)  # Create the folder if it doesn't exist
+        return os.path.join(blockchain_folder_path, "blockchain.dat")
 
 # check for blocks
 def check_existing_blocks(file_path):
@@ -101,6 +94,7 @@ def check_existing_blocks(file_path):
 
 # construct genesis block
 def create_genesis_block(file_path):
+    
     #length is known to be 14 for genesis block, so 14 bytes added for data
     dynamicformat = structformat + " 14s"
     block_format = struct.Struct(dynamicformat)
@@ -125,6 +119,26 @@ def create_genesis_block(file_path):
         
         # Write block data to file
         file.write(block_data)
+
+# chcecks for the genesis block
+def check_genesis_block(file_path):
+    if not os.path.isfile(file_path):
+        create_genesis_block(file_path)
+        return False
+    else:
+        with open(file_path, "rb") as file:
+            # Read the first block data
+            block_data = file.read(struct.calcsize(structformat))
+            if not block_data:
+                return False  # No blocks found
+            else:
+                # Unpack block data
+                prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = struct.unpack(structformat, block_data)
+                # Check if it's the genesis block
+                if state.strip(b'\x00') == b"INITIAL":
+                    return True
+                else:
+                    return False
 
 def countblocks(file_path):
     numblocks = 0
@@ -164,22 +178,30 @@ def floattime():
     fltime = float(time.time())
     return fltime
     
+
+
+import binascii
 def encrypt_aes_ecb(plaintext):
     backend = default_backend()
     cipher = Cipher(algorithms.AES(AES_KEY), modes.ECB(), backend=backend)
     encryptor = cipher.encryptor()
     ciphertext = encryptor.update(plaintext) + encryptor.finalize()
-    return ciphertext
+    
+    ciphertext_hex = binascii.hexlify(ciphertext)
+    
+    return ciphertext_hex
 
-def decrypt_case_id(id_hex):
-    id_bytes = bytes.fromhex(id_hex)
-    decrypted_id_bytes = decrypt_aes_ecb(AES_KEY, id_bytes)
-    id_uuid = UUID(bytes=decrypted_id_bytes)
-    return id_uuid
+def decrypt_aes_ecb(ciphertext):
+    backend = default_backend()
+    cipher = Cipher(algorithms.AES(AES_KEY), modes.ECB(), backend=backend)
+    decryptor = cipher.decryptor()
+    plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+    
+    return plaintext
 
 #add a case
 def addcase(file_path):
-    for i in args.i:
+    for i in args.i:        
         if countblocks(file_path) == 1:
             with open(file_path, "ab") as file:
                 dynamicformat = structformat + " 0s"
@@ -189,22 +211,35 @@ def addcase(file_path):
                 uuidbytes = uuidint.to_bytes(16, byteorder='big')
                 case_id = encrypt_aes_ecb(uuidbytes)
                 evidence_int = int(i)
-                hexid = evidence_int.to_bytes(16)
+                hexid = evidence_int.to_bytes(16, byteorder='big')
                 evidence_id = encrypt_aes_ecb(hexid)
-                state = b"CHECKEDIN\0\0\0"
+                state = b"CHECKEDIN\0\0"
                 d_length = 0
                 data = b""
-                owner = b"AAAA\0\0\0\0\0\0\0\0\0\0\0\0"
+                owner = b"\0\0\0\0\0\0\0\0\0\0\0\0"
          
                 # Pack data into binary format
                 block_data = block_format.pack(
                     previoushash, floattime(), case_id, evidence_id,
                     state, args.g.encode('utf-8'), owner, d_length, data
                 )
+
+                # # debugging
+                # print("Previous Hash:", previoushash)
+                # print("Timestamp:", floattime())
+                # print("Case ID:", case_id)
+                # print("Evidence ID:", evidence_id)
+                print("State:", state)
+                # print("Creator:", args.g)
+                # print("Owner:", owner)
+                # print("Data Length:", d_length)
+                # print("Data:", data)
+
                 file.write(block_data)
+                print("Added item:", i)
+                print("Status: CHECKEDIN")
         else:
             with open(file_path, "ab") as file:
-                print(countblocks(file_path))
                 dynamicformat = structformat + " 0s"
                 block_format = struct.Struct(dynamicformat)
                 previoushash = get_deepest_previous_hash(file_path)
@@ -212,28 +247,57 @@ def addcase(file_path):
                 uuidbytes = uuidint.to_bytes(16, byteorder='big')
                 case_id = encrypt_aes_ecb(uuidbytes)
                 evidence_int = int(i)
-                hexid = evidence_int.to_bytes(16)
+                hexid = evidence_int.to_bytes(16, byteorder='big')
                 evidence_id = encrypt_aes_ecb(hexid)
-                state = b"CHECKEDIN\0\0\0"
+                state = b"CHECKEDIN\0\0"
                 d_length = 0
                 data = b""
-                owner = b"AAAA\0\0\0\0\0\0\0\0\0\0\0\0"
+                owner = b"\0\0\0\0\0\0\0\0\0\0\0\0"
                 # Pack data into binary format
                 block_data = block_format.pack(
                     previoushash.encode('utf-8'), floattime(), case_id, evidence_id,
                     state, args.g.encode('utf-8'), owner, d_length, data
                 )
+
+                # debugging
+                # print("Previous Hash:", previoushash)
+                # print("Timestamp:", floattime())
+                # print("Case ID:", case_id)
+                # print("Evidence ID:", evidence_id)
+                print("State:", state)
+                # print("Creator:", args.g)
+                # print("Owner:", owner)
+                # print("Data Length:", d_length)
+                # print("Data:", data)
+
                 file.write(block_data)
+                print("Added item:", i)
+                print("Status: CHECKEDIN")
+
+    isotime()
+
+
+
+
+
 
 def main():
     file_path = get_file_path()
-    if not check_existing_blocks(file_path):
-        create_genesis_block(file_path)
-        print("genesis block created.")
-    else:
-        print("blockchain already exists.")
-    if args.command == "add":
-        addcase(file_path)
+    
+    if args.command == "init":
+        if check_genesis_block(file_path):
+            print("Blockchain file found with INITIAL block.")
+        else:
+            print("Blockchain file not found. Created INITIAL block.")
+    elif args.command == "add":
+        # if the genesis block doesn't exist when a case is attempted to be added
+        # it might have to invoke an error exit, but for now just create it then add
+        # gotta check project doc
+        if not check_existing_blocks(file_path):
+            create_genesis_block(file_path)
+            addcase(file_path)
+        else:
+            addcase(file_path)
 
 if __name__ == "__main__":
     main()
