@@ -209,6 +209,27 @@ def addcase(file_path):
     if args.p != CREATOR_PASSWORD:
         exit("incorrect password")
     
+
+    existing_item_ids = set()
+
+    # read item ids from chain
+    with open(file_path, "rb") as file:
+        while True:
+            partialblock = struct.Struct(structformat)
+            block_data = file.read(partialblock.size)
+            if not block_data:
+                break  # Reached end of file
+            _, _, _, evidence_id, _, _, _, dlength = partialblock.unpack(block_data)
+            file.seek(partialblock.size + dlength)
+            existing_item_ids.add(evidence_id)
+
+    # check for existing item id
+    for i in args.i:
+        evidence_id = encrypt_aes_ecb(int(i).to_bytes(16, byteorder='big'))
+        if evidence_id in existing_item_ids:
+            exit(f"Item with ID {i} already exists in the blockchain.")
+            return
+        
     for i in args.i:        
         if countblocks(file_path) == 1:
             with open(file_path, "ab") as file:
