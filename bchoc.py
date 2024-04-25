@@ -50,7 +50,7 @@ show_items_parser.add_argument('-c', type=str, required=True, help="Case ID")
 show_history_parser = show_subparsers.add_parser("history")
 show_history_parser.add_argument('-c', type=str, help="Case ID")
 show_history_parser.add_argument('-i', type=str, help="Item ID")
-show_history_parser.add_argument('-n', type=int, help="Number of entries")
+show_history_parser.add_argument('-n', action='store_true', help="Number of entries")
 show_history_parser.add_argument('-r', action='store_true', help="Reverse entries")
 show_history_parser.add_argument('-p', type=str, required=True, help="Password")
 
@@ -182,10 +182,9 @@ def get_deepest_previous_hash(file_path):
         hashed = hashlib.sha256(catstring).hexdigest()
         return hashed
 
-def isotime():
-    currenttime = datetime.datetime.utcnow()
-    iso = currenttime.isoformat()
-    print(iso)
+def isotime(timestamp):
+    dtobj = datetime.datetime.utcfromtimestamp(timestamp)
+    iso = dtobj.isoformat()
     return iso
     
 def floattime():
@@ -203,12 +202,12 @@ def encrypt_aes_ecb(plaintext):
     
     return ciphertext_hex
 
-def decrypt_aes_ecb(ciphertext):
+def decrypt_aes_ecb(ciphertext_hex):
+    ciphertext = binascii.unhexlify(ciphertext_hex)
     backend = default_backend()
     cipher = Cipher(algorithms.AES(AES_KEY), modes.ECB(), backend=backend)
     decryptor = cipher.decryptor()
     plaintext = decryptor.update(ciphertext) + decryptor.finalize()
-    
     return plaintext
 
 #add a case
@@ -311,8 +310,6 @@ def addcase(file_path):
                 print("Added item:", i)
                 print("Status: CHECKEDIN")
 
-    isotime()
-
 
 POLICE_PASSWORD = os.environ.get("BCHOC_PASSWORD_POLICE")
 LAWYER_PASSWORD = os.environ.get("BCHOC_PASSWORD_LAWYER")
@@ -320,7 +317,89 @@ ANALYST_PASSWORD = os.environ.get("BCHOC_PASSWORD_ANALYST")
 EXECUTIVE_PASSWORD = os.environ.get("BCHOC_PASSWORD_EXECUTIVE")
 CREATOR_PASSWORD = os.environ.get("BCHOC_PASSWORD_CREATOR")
 
+passwordlist = [POLICE_PASSWORD, LAWYER_PASSWORD, ANALYST_PASSWORD, EXECUTIVE_PASSWORD, CREATOR_PASSWORD]
 
+def parseblocks(file_path, parsetype, matchcase = "", matchevi = ""):
+    currentbyte = 0
+    blockstruct = struct.Struct(structformat)
+    blocks = []
+    with open(file_path, "rb") as file:
+        file.seek(blockstruct.size + 14)
+        currentbyte += blockstruct.size + 14
+        block_data = file.read(blockstruct.size)
+        while True:
+            if not block_data:
+                break  # Reached end of file
+            prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = blockstruct.unpack(block_data)
+            if parsetype == "MatchBoth":
+                decrypteduuid = decrypt_aes_ecb(case_id)
+                cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+                caseuuid = UUID(int=cintuuid)
+                decryptedevi = decrypt_aes_ecb(evidence_id)
+                eint = int.from_bytes(decryptedevi, byteorder = 'big')
+                if str(caseuuid) == matchcase and str(eint) == matchevi:
+                    blocks.append([prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength])
+            elif parsetype == "MatchCase":
+                decrypteduuid = decrypt_aes_ecb(case_id)
+                cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+                caseuuid = UUID(int=cintuuid)
+                if str(caseuuid) == matchcase:
+                    blocks.append([prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength])
+            elif parsetype == "MatchEvi":
+                decryptedevi = decrypt_aes_ecb(evidence_id)
+                eint = int.from_bytes(decryptedevi, byteorder = 'big')
+                if str(eint) == matchevi:
+                    blocks.append([prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength])
+            currentbyte += blockstruct.size
+            file.seek(currentbyte)
+            block_data = file.read(blockstruct.size)
+        if not blocks:
+           exit("Blocks not found")
+        return blocks
+
+def history(file_path):
+    reverse = False
+    caselist = []
+    if not check_genesis_block(file_path):
+        exit("no genesis block")
+    if args.p not in passwordlist:
+        exit("invalid password")
+    if args.r:
+        reverse = True
+    if args.c and args.i:
+        caselist = parseblocks(file_path, "MatchBoth", args.c, args.i)
+    elif args.c:
+        caselist = parseblocks(file_path,"MatchCase", args.c)
+    elif args.i:
+        caselist = parseblocks(file_path, "MatchEvi", "", args.i)
+    if args.n:
+        print(countblocks(file_path))
+    if caselist:
+        if not reverse:
+            for c in caselist:
+                decrypteduuid = decrypt_aes_ecb(c[2])
+                cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+                caseuuid = UUID(int=cintuuid)
+                print("Case: " + str(caseuuid))
+                decryptedevi = decrypt_aes_ecb(c[3])
+                eint = int.from_bytes(decryptedevi, byteorder = 'big')
+                print("Item: " + str(eint))
+                print("State: " + c[4].decode('utf-8'))
+                print("Time: " + isotime(c[1]) + "Z\n")
+                
+        else:
+            caselist.reverse()
+            for c in caselist:
+                decrypteduuid = decrypt_aes_ecb(c[2])
+                cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+                caseuuid = UUID(int=cintuuid)
+                print("Case: " + str(caseuuid))
+                decryptedevi = decrypt_aes_ecb(c[3])
+                eint = int.from_bytes(decryptedevi, byteorder = 'big')
+                print("Item: " + str(eint))
+                print("State: " + c[4].decode('utf-8'))
+                print("Time: " + isotime(c[1]) + "Z")
+                print("\n")
 
 def main():
     file_path = get_file_path()
@@ -341,6 +420,13 @@ def main():
             addcase(file_path, )
         else:
             addcase(file_path)
+    elif args.command == "show":
+        if args.show_command == "cases":
+            print("under construction")
+        elif args.show_command == "items":
+            print("also under construction")
+        elif args.show_command == "history":
+            history(file_path)
 
 if __name__ == "__main__":
     main()
