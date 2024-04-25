@@ -375,9 +375,6 @@ def removecase(file_path):
     item_id = args.i
     reason = args.why
     password = args.p
-    print(item_id)
-    print(reason)
-    print(password)
     if not check_existing_blocks(file_path):
         print("Blockchain file not found.")
         return
