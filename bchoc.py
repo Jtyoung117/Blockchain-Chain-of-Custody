@@ -57,7 +57,7 @@ show_history_parser.add_argument('-p', type=str, required=True, help="Password")
 # 'remove' command
 remove_parser = subparsers.add_parser("remove")
 remove_parser.add_argument('-i', type=str, required=True, help="Item ID")
-remove_parser.add_argument('-y', type=str, required=True, help="Reason")
+remove_parser.add_argument('--why', '-y', type=str, required=True, help="Reason")
 remove_parser.add_argument('-p', type=str, required=True, help="Password (creator's)")
 
 # 'init' command
@@ -373,9 +373,11 @@ def history(file_path):
                 print("\n")
 def removecase(file_path):
     item_id = args.i
-    reason = args.y
+    reason = args.why
     password = args.p
-
+    print(item_id)
+    print(reason)
+    print(password)
     if not check_existing_blocks(file_path):
         print("Blockchain file not found.")
         return
