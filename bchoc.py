@@ -463,184 +463,123 @@ def removecase(file_path):
 
 
 def checkin(file_path):
+    if args.p not in passwordlist:
+        exit("invalid password")
+    currentbyte = 0
     item_id = args.i
-
-    # Check if the blockchain file exists
-    # if not check_existing_blocks(file_path):
-    #     print("Blockchain file not found.")
-    #     return
-
+    partialblock = struct.Struct(structformat)
+    mostrecentitem = []
     # Check if the provided item ID exists in the blockchain
-    item_exists = False
     with open(file_path, "rb") as file:
+        file.seek(partialblock.size + 14)
+        currentbyte = partialblock.size + 14
+        block_data = file.read(partialblock.size)
         while True:
-            partialblock = struct.Struct(structformat)
-            block_data = file.read(partialblock.size)
             if not block_data:
-                exit("Reached end of file.")
                 break  # Reached end of file
             
             # Unpack block data into individual fields
             prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
-
-            #Print each section of information
-            # print("Previous Hash:", prev_hash)
-            # print("Timestamp:", timestamp)
-            # print("Case ID:", case_id)
-            # print("Evidence ID (Encrypted):", evidence_id)
             decrypted_evidence_id = decrypt_aes_ecb(evidence_id)
-            # print("Evidence ID (Decrypted):", int.from_bytes(decrypted_evidence_id, byteorder='big'))
-            # print("State:", state)
-            # print("Creator:", creator)
-            # print("Owner:", owner)
-            # print("Data Length:", dlength)
-
+            eint = int.from_bytes(decrypted_evidence_id, byteorder = 'big')
+            if str(eint) == item_id:
+                mostrecentitem = [prev_hash,timestamp, case_id, evidence_id, state, creator, dlength]
             # Seek to the next block
-            file.seek(partialblock.size + dlength)
-
-            # Check if the provided item ID matches the decrypted evidence ID
-            # print()
-            # print()
-            # print(int.from_bytes(decrypted_evidence_id, byteorder='big'))
-            # print(int(item_id))
-            if int.from_bytes(decrypted_evidence_id, byteorder='big') == int(item_id):
-                item_exists = True
-                break
-
-    if not item_exists:
-        print(f"Item with ID {item_id} does not exist in the blockchain.")
-        return
-
+            currentbyte += partialblock.size
+            file.seek(currentbyte)
+            block_data = file.read(partialblock.size)
+    if not mostrecentitem:
+        exit("Item not found")
     # Check if the item is already checked in
-    if not item_exists:
-        exit(f"Item with ID {item_id} does not exist in the blockchain.")
-        return
-    elif state.strip(b'\x00') == b"CHECKEDIN":
-        exit("item is checked in already")
-        #return
-    elif args.p not in passwordlist:
-        exit("invalid password")
+    if mostrecentitem[4].strip(b'\x00') != b"CHECKEDOUT":
+        exit("Item cannot be checked in")
     # Prepare data for the new block
     with open(file_path, "rb") as file:
         dynamicformat = structformat + " 0s"
         block_format = struct.Struct(dynamicformat)
-        previoushash = get_deepest_previous_hash(file_path)
-        uuidint = UUID(args.c).int
-        uuidbytes = uuidint.to_bytes(16, byteorder='big')
-        case_id = encrypt_aes_ecb(uuidbytes)
-        evidence_int = int(item_id)
-        hexid = evidence_int.to_bytes(16, byteorder='big')
-        evidence_id = encrypt_aes_ecb(hexid)
+        #previoushash = get_deepest_previous_hash(file_path)
         state = b"CHECKEDIN\0\0\0"
-        d_length = 0
         data = b""
-        owner = b"\0\0\0\0\0\0\0\0\0\0\0\0" # Assuming the owner is set to all zeros for now
 
-    # Pack data into binary format
-        block_format = struct.Struct(structformat + " 0s")
+        # Pack data into binary format
+        time = floattime()
         block_data = block_format.pack(
-            previoushash.encode('utf-8'), floattime(), case_id, evidence_id,
-            state, creator, owner, d_length, data
+            mostrecentitem[0], mostrecentitem[1], mostrecentitem[2], mostrecentitem[3],
+            state, mostrecentitem[5], checkowner(args.p), mostrecentitem[6], data
         )
 
         # Append the new block to the blockchain file
         with open(file_path, "ab") as file:
             file.write(block_data)
 
+        decrypteduuid = decrypt_aes_ecb(mostrecentitem[2])
+        cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+        caseuuid = UUID(int=cintuuid)
+        decryptedevi = decrypt_aes_ecb(mostrecentitem[3])
+        eint = int.from_bytes(decryptedevi, byteorder = 'big')
         # Print checkout details
-        print("Case:", int.from_bytes(decrypted_evidence_id, byteorder='big'))
-        print("Checked out item:", item_id)
-        print("Status: CHECKEDIN")
-        print("Time of action:", isotime())
+        print("Case: ", str(caseuuid))
+        print("Checked in item: ", str(eint))
+        print("Status: " + state.decode('utf-8'))
+        print("Time of action:", isotime(mostrecentitem[1]))
 
 def checkout(file_path):
-
+    if args.p not in passwordlist:
+        exit("invalid password")
+    partialblock = struct.Struct(structformat)
+    currentbyte = 0
     item_id = args.i
-    print("Item ID:", item_id)
-
-    item_exists = False
+    mostrecentitem = []
     with open(file_path, "rb") as file:
+        file.seek(partialblock.size + 14)
+        currentbyte = partialblock.size + 14
+        block_data = file.read(partialblock.size)
         while True:
-            partialblock = struct.Struct(structformat)
-            block_data = file.read(partialblock.size)
             if not block_data:
-                exit("Reached end of file.")  # Consider removing this line
                 break  # Reached end of file
-
             # Unpack block data into individual fields
             prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
-
-            # Print each section of information
-            # print("Previous Hash:", prev_hash)
-            # print("Timestamp:", timestamp)
-            # print("Case ID:", case_id)
-            # print("Evidence ID (Encrypted):", evidence_id)
             decrypted_evidence_id = decrypt_aes_ecb(evidence_id)
-            # print("Evidence ID (Decrypted):", int.from_bytes(decrypted_evidence_id, byteorder='big'))
-            # print("State:", state)
-            # print("Creator:", creator)
-            # print("Owner:", owner)
-            # print("Data Length:", dlength)
-
+            eint = int.from_bytes(decrypted_evidence_id, byteorder = 'big')
+            if str(eint) == item_id:
+                mostrecentitem = [prev_hash,timestamp, case_id, evidence_id, state, creator, dlength]
             # Seek to the next block
-            file.seek(partialblock.size + dlength)
-
-            # Check if the provided item ID matches the decrypted evidence ID
-            # print()
-            # print()
-            # print(int.from_bytes(decrypted_evidence_id, byteorder='big'))
-            # print(int(item_id))
-
-            # check if the id matches
-            if int.from_bytes(decrypted_evidence_id, byteorder='big') == int(item_id):
-                item_exists = True
-                break
-
-    if not item_exists:
-        exit(f"Item with ID {item_id} does not exist in the blockchain.")
-        return
-    elif state.strip(b'\x00') == b"CHECKEDOUT":
-        exit("Item is checked out already.")
-        #return
-    elif args.p not in passwordlist:
-        exit("Invalid password.")
-
+            currentbyte += partialblock.size
+            file.seek(currentbyte)
+            block_data = file.read(partialblock.size)
+    if not mostrecentitem:
+        exit("Item not found")
+    # Check if the item is already checked in
+    if mostrecentitem[4].strip(b'\x00') != b"CHECKEDIN":
+        exit("Item cannot be checked out")
     # Prepare data for the new block
-    #print("Preparing data for the new block...")
-
     with open(file_path, "rb") as file:
         dynamicformat = structformat + " 0s"
         block_format = struct.Struct(dynamicformat)
         previoushash = get_deepest_previous_hash(file_path)
-        #uuidint = UUID(args.c).int
-        #uuidbytes = uuidint.to_bytes(16, byteorder='big')
-        #case_id = encrypt_aes_ecb(uuidbytes)
-        evidence_int = int(item_id)
-        hexid = evidence_int.to_bytes(16, byteorder='big')
-        evidence_id = encrypt_aes_ecb(hexid)
-        state = b"CHECKEDOUT\0\0\0"
-        d_length = 0
+        state = b"CHECKEDOUT\0\0"
         data = b""
-        owner = b"\0\0\0\0\0\0\0\0\0\0\0\0"  # Assuming the owner is set to all zeros for now
 
-    # Pack data into binary format
-        block_format = struct.Struct(structformat + " 0s")
+        # Pack data into binary format
         block_data = block_format.pack(
-            previoushash.encode('utf-8'), floattime(), case_id, evidence_id,
-            state, creator, owner, d_length, data
+            mostrecentitem[0], mostrecentitem[1], mostrecentitem[2], mostrecentitem[3],
+            state, mostrecentitem[5], checkowner(args.p), mostrecentitem[6], data
         )
 
         # Append the new block to the blockchain file
         with open(file_path, "ab") as file:
             file.write(block_data)
 
+        decrypteduuid = decrypt_aes_ecb(mostrecentitem[2])
+        cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+        caseuuid = UUID(int=cintuuid)
+        decryptedevi = decrypt_aes_ecb(mostrecentitem[3])
+        eint = int.from_bytes(decryptedevi, byteorder = 'big')
         # Print checkout details
-        print("Case:", int.from_bytes(decrypted_evidence_id, byteorder='big'))
-        print("Checked out item:", item_id)
-        print("Status: CHECKEDOUT")
-        #print("Time of action:", isotime())
-
-    #print("Checkout process completed.")
+        print("Case: ", str(caseuuid))
+        print("Checked out item: ", str(eint))
+        print("Status: " + state.decode('utf-8'))
+        print("Time of action:", isotime(mostrecentitem[1]))
 
 
 
@@ -650,6 +589,18 @@ ANALYST_PASSWORD = os.environ.get("BCHOC_PASSWORD_ANALYST")
 EXECUTIVE_PASSWORD = os.environ.get("BCHOC_PASSWORD_EXECUTIVE")
 CREATOR_PASSWORD = os.environ.get("BCHOC_PASSWORD_CREATOR")
 passwordlist = [POLICE_PASSWORD, LAWYER_PASSWORD, ANALYST_PASSWORD, EXECUTIVE_PASSWORD, CREATOR_PASSWORD]
+
+def checkowner(password):
+    if password == POLICE_PASSWORD:
+        return b"POLICE" + b"\0"*6
+    elif password == LAWYER_PASSWORD:
+        return b"LAWYER" + b"\0"*6
+    elif password == ANALYST_PASSWORD:
+        return b"ANALYST" + b"\0"*5
+    elif password == EXECUTIVE_PASSWORD:
+        return b"EXECUTIVE" + b"\0"*3
+    elif password == CREATOR_PASSWORD:
+        return b"CREATOR" + b"\0"*5
 
 
 def main():
