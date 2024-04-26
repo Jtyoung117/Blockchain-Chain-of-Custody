@@ -687,7 +687,6 @@ def main():
             showitems(file_path)
         elif args.show_command == "history":
             history(file_path)
-            print(test)
 
 if __name__ == "__main__":
     main()
