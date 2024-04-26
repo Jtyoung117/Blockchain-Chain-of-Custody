@@ -169,17 +169,17 @@ def countblocks(file_path):
 
 def get_deepest_previous_hash(file_path):
     with open(file_path, "rb") as file:
+        partialblock = struct.Struct(structformat)
+        file.seek(partialblock.size + 14)
+        block_data = file.read(partialblock.size)
         while True:
-            partialblock = struct.Struct(structformat)
-            block_data = file.read(partialblock.size)
             if not block_data:
                 break  # Reached end of file
             prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
-            #dlength = struct.unpack("I", block_data[-4:])[0]
-            data = file.read(dlength)
-            catstring = prev_hash + struct.pack("d", timestamp) + case_id + evidence_id + state + creator + owner + struct.pack("I", dlength) + data
-            file.seek(partialblock.size + dlength)
-        hashed = hashlib.sha256(catstring).hexdigest()
+            catstring = prev_hash + struct.pack("d", timestamp) + case_id + evidence_id + state + creator + owner + struct.pack("I", dlength)
+            hashed = hashlib.sha256(catstring).hexdigest()
+            partialblock = struct.Struct(structformat)
+            block_data = file.read(partialblock.size)
         return hashed
 
 def isotime(timestamp):
@@ -321,6 +321,15 @@ def parseblocks(file_path, parsetype, matchcase = "", matchevi = ""):
                 eint = int.from_bytes(decryptedevi, byteorder = 'big')
                 if str(eint) == matchevi:
                     blocks.append([prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength])
+            elif parsetype == "GetCases":
+                if case_id not in blocks:
+                    blocks.append(case_id)
+            elif parsetype == "GetItems":
+                decrypteduuid = decrypt_aes_ecb(case_id)
+                cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+                caseuuid = UUID(int=cintuuid)
+                if str(caseuuid) == matchcase:
+                    blocks.append(evidence_id)
             currentbyte += blockstruct.size
             file.seek(currentbyte)
             block_data = file.read(blockstruct.size)
@@ -371,6 +380,22 @@ def history(file_path):
                 print("State: " + c[4].decode('utf-8'))
                 print("Time: " + isotime(c[1]) + "Z")
                 print("\n")
+                
+def showcases(file_path):
+    caselist = parseblocks(file_path, "GetCases")
+    for c in caselist:
+        decrypteduuid = decrypt_aes_ecb(c)
+        cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+        caseuuid = UUID(int=cintuuid)
+        print(str(caseuuid) + "\n")
+
+def showitems(file_path):
+    itemlist = parseblocks(file_path, "GetItems", args.c)
+    for i in itemlist:
+        decryptedevi = decrypt_aes_ecb(i)
+        eint = int.from_bytes(decryptedevi, byteorder = 'big')
+        print(str(eint) + "\n")
+                
 def removecase(file_path):
     item_id = args.i
     reason = args.why
@@ -657,9 +682,9 @@ def main():
         checkout(file_path)
     elif args.command == "show":
         if args.show_command == "cases":
-            print("under construction")
+            showcases(file_path)
         elif args.show_command == "items":
-            print("also under construction")
+            showitems(file_path)
         elif args.show_command == "history":
             history(file_path)
 
