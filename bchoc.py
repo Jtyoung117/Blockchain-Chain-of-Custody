@@ -139,8 +139,12 @@ def check_genesis_block(file_path):
             if not block_data:
                 return False  # No blocks found
             else:
+                try:
                 # Unpack block data
-                prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = struct.unpack(structformat, block_data)
+                    prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = struct.unpack(structformat, block_data)
+                except struct.error:
+                    print("Invalid pre-existing file")
+                    exit(1)
                 # Check if it's the genesis block
                 if state.strip(b'\x00') == b"INITIAL":
                     return True
@@ -581,6 +585,9 @@ def checkout(file_path):
         print("Status: " + state.decode('utf-8'))
         print("Time of action:", isotime(mostrecentitem[1]))
 
+def verify(file_path):
+    print("under construction")
+
 
 
 POLICE_PASSWORD = os.environ.get("BCHOC_PASSWORD_POLICE")
@@ -638,6 +645,8 @@ def main():
             showitems(file_path)
         elif args.show_command == "history":
             history(file_path)
+    elif args.command == "verify":
+        verify(file_path)
 
 if __name__ == "__main__":
     main()
