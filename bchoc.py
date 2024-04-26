@@ -51,7 +51,7 @@ show_history_parser = show_subparsers.add_parser("history")
 show_history_parser.add_argument('-c', type=str, help="Case ID")
 show_history_parser.add_argument('-i', type=str, help="Item ID")
 show_history_parser.add_argument('-n', type=int, help="Number of entries")
-show_history_parser.add_argument('-r', action='store_true', help="Reverse entries")
+show_history_parser.add_argument('-r','--reverse', action='store_true', help="Reverse entries")
 show_history_parser.add_argument('-p', type=str, required=True, help="Password")
 
 # 'remove' command
@@ -59,6 +59,7 @@ remove_parser = subparsers.add_parser("remove")
 remove_parser.add_argument('-i', type=str, required=True, help="Item ID")
 remove_parser.add_argument('--why', '-y', type=str, required=True, help="Reason")
 remove_parser.add_argument('-p', type=str, required=True, help="Password (creator's)")
+remove_parser.add_argument('-o', type=str, required=False, help="Owner(required if Released)")
 
 # 'init' command
 init_parser = subparsers.add_parser("init")
@@ -344,7 +345,7 @@ def history(file_path):
         exit("no genesis block")
     if args.p not in passwordlist:
         exit("invalid password")
-    if args.r:
+    if args.reverse:
         reverse = True
     if args.c and args.i:
         caselist = parseblocks(file_path, "MatchBoth", args.c, args.i)
@@ -400,66 +401,66 @@ def removecase(file_path):
     item_id = args.i
     reason = args.why
     password = args.p
+    validreasons = ["RELEASED","DESTROYED","DISPOSED"]
+    mostrecentitem = []
     if not check_existing_blocks(file_path):
-        print("Blockchain file not found.")
-        return
-
-    item_exists = False
-    creator_password_matched = False
+        exit("Blockchain file not found.")
+    if args.p != CREATOR_PASSWORD:
+        exit("Creator password not provided.")
+    
+    if reason not in validreasons:
+        exit("Valid Reason not given")
+    partialblock = struct.Struct(structformat)
     with open(file_path, "rb") as file:
+        file.seek(partialblock.size + 14)
+        currentbyte = partialblock.size + 14
+        block_data = file.read(partialblock.size)
         while True:
-            partialblock = struct.Struct(structformat)
-            block_data = file.read(partialblock.size)
             if not block_data:
-                break
-            _, _, _, evidence_id, state, creator, _, dlength = partialblock.unpack(block_data)
-            file.seek(partialblock.size + dlength)
+                break  # Reached end of file
+            
+            # Unpack block data into individual fields
+            prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
             decrypted_evidence_id = decrypt_aes_ecb(evidence_id)
-            if decrypted_evidence_id == int(item_id).to_bytes(16, byteorder='big'):
-                item_exists = True
-                if password == CREATOR_PASSWORD:
-                    creator_password_matched = True
-                break
-
-    if not item_exists:
-        exit(f"Item with ID {item_id} does not exist in the blockchain.")
-        return
-    elif not creator_password_matched:
-        exit("Password is incorrect.")
-        return
-
-    if reason == "DISPOSED" or reason == "DESTROYED":
-        state = b"DISPOSED\0\0\0\0\0\0\0\0\0\0\0"
-    elif reason == "RELEASED":
-        state = b"RELEASED\0\0\0\0\0\0\0\0\0\0\0"
-        if not args.o:
-            print("For RELEASED reason, '-o' option must be provided.")
-            return
-    else:
-        exit("Invalid reason provided.")
-        return
-
+            eint = int.from_bytes(decrypted_evidence_id, byteorder = 'big')
+            if str(eint) == item_id:
+                mostrecentitem = [prev_hash,timestamp, case_id, evidence_id, state, creator, owner, dlength]
+            # Seek to the next block
+            currentbyte += partialblock.size
+            file.seek(currentbyte)
+            block_data = file.read(partialblock.size)
+    if not mostrecentitem:
+        exit("Item not found")
+    # Check if the item is checked in
+    if mostrecentitem[4].strip(b'\x00') != b"CHECKEDIN":
+        exit("Item must be checked in")
+    # Prepare data for the new block
     with open(file_path, "rb") as file:
-        previous_hash = get_deepest_previous_hash(file_path)
-    uuid_int = UUID(args.c).int
-    case_id = encrypt_aes_ecb(uuid_int.to_bytes(16, byteorder='big'))
-    evidence_id = encrypt_aes_ecb(int(item_id).to_bytes(16, byteorder='big'))
-    data_length = len(reason.encode('utf-8'))
-    data = reason.encode('utf-8')
-    owner = b"\0\0\0\0\0\0\0\0\0\0\0\0"
+        dynamicformat = structformat + " 0s"
+        block_format = struct.Struct(dynamicformat)
+        bytereason = reason.encode('utf-8')
+        bytereason = bytereason + ((12 - len(bytereason)) * b"\0")
+        data = b""
 
-    block_format = struct.Struct(structformat + " 0s")
-    block_data = block_format.pack(
-        previous_hash.encode('utf-8'), floattime(), case_id, evidence_id,
-        state, args.g.encode('utf-8'), owner, data_length, data
-    )
+        # Pack data into binary format
+        block_data = block_format.pack(
+            mostrecentitem[0], mostrecentitem[1], mostrecentitem[2], mostrecentitem[3],
+            bytereason, mostrecentitem[5], mostrecentitem[6], mostrecentitem[7], data
+        )
 
-    with open(file_path, "ab") as file:
-        file.write(block_data)
+        # Append the new block to the blockchain file
+        with open(file_path, "ab") as file:
+            file.write(block_data)
 
-    print("Item removed:", item_id)
-    print("Reason:", reason)
-    print("Time of action:", isotime())
+        decrypteduuid = decrypt_aes_ecb(mostrecentitem[2])
+        cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+        caseuuid = UUID(int=cintuuid)
+        decryptedevi = decrypt_aes_ecb(mostrecentitem[3])
+        eint = int.from_bytes(decryptedevi, byteorder = 'big')
+        # Print checkout details
+        print("Case: ", str(caseuuid))
+        print("Status: " + bytereason.decode('utf-8'))
+        print("Time of action:", isotime(mostrecentitem[1]))
 
 
 def checkin(file_path):
@@ -502,7 +503,6 @@ def checkin(file_path):
         data = b""
 
         # Pack data into binary format
-        time = floattime()
         block_data = block_format.pack(
             mostrecentitem[0], mostrecentitem[1], mostrecentitem[2], mostrecentitem[3],
             state, mostrecentitem[5], checkowner(args.p), mostrecentitem[6], data
