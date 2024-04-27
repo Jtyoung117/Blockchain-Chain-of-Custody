@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import argparse
 import os
 import struct
@@ -662,7 +660,49 @@ def checkout(file_path):
         print("Time of action:", isotime(mostrecentitem[1]))
 
 def verify(file_path):
-    print("under construction")
+    # use a hash map to track evidence ID states
+    item_states = {}
+
+    
+    
+    # read existing chain
+    with open(file_path, "rb") as file:
+        partialblock = struct.Struct(structformat)
+        file.seek(partialblock.size + 14)  # Skip the genesis block
+        prev_hashes = set()
+        block_data = file.read(partialblock.size)
+
+        if block_data:
+            prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
+            if b"INITIAL" not in prev_hash:
+                print("bad initial block")
+                sys.exit(1)
+
+
+        while block_data:
+            prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
+            
+            # access evidence item ids
+            decrypted_ev_id = decrypt_aes_ecb(evidence_id)
+            evidence_int = int.from_bytes(decrypted_ev_id, byteorder='big')
+            
+            # check for bad sequences
+            if evidence_int in item_states:
+                if state.strip(b'\x00') == item_states[evidence_int]:
+                    sys.exit(1)
+                elif state.strip(b'\x00') == b"CHECKEDIN" and item_states[evidence_int] in ["RELEASED","DESTROYED","DISPOSED"]:
+                    sys.exit(1)
+                elif state.strip(b'\x00') == b"CHECKEDOUT" and item_states[evidence_int] in ["RELEASED","DESTROYED","DISPOSED"]:
+                    sys.exit(1)
+                elif state.strip(b'\x00') in ["RELEASED","DESTROYED","DISPOSED"] and item_states[evidence_int] != b"CHECKEDIN":
+                    sys.exit(1)
+            
+            # update hash map
+            item_states[evidence_int] = state.strip(b'\x00')
+            
+            # go to next block
+            block_data = file.read(partialblock.size)
+
 
 
 
