@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import os
 import struct
@@ -659,49 +661,90 @@ def checkout(file_path):
         print("Status: " + state.decode('utf-8'))
         print("Time of action:", isotime(mostrecentitem[1]))
 
+import sys
+import struct
+import hashlib
+
 def verify(file_path):
+    # Define struct format
+    structformat = "32s Q 32s 32s 8s 32s 32s I"
+
     # use a hash map to track evidence ID states
     item_states = {}
 
-    
-    
+    # Function to get the deepest previous hash
+    def get_deepest_previous_hash(file_path):
+        with open(file_path, "rb") as file:
+            partialblock = struct.Struct(structformat)
+            file.seek(partialblock.size + 14)
+            block_data = file.read(partialblock.size)
+            deepest_previous_hash = None
+            while block_data:
+                prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
+                catstring = prev_hash + struct.pack("d", timestamp) + case_id + evidence_id + state + creator + owner + struct.pack("I", dlength)
+                deepest_previous_hash = hashlib.sha256(catstring).hexdigest()
+                partialblock = struct.Struct(structformat)
+                block_data = file.read(partialblock.size)
+            return deepest_previous_hash
+
     # read existing chain
     with open(file_path, "rb") as file:
         partialblock = struct.Struct(structformat)
-        file.seek(partialblock.size + 14)  # Skip the genesis block
+        block_data = file.read(struct.calcsize(structformat))
+        try: 
+            prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
+            if state.strip(b'\x00') != b"INITIAL":
+                print("Incorrect initial block")
+                sys.exit(1)
+        except struct.error:
+            exit("Invalid initial block")
+            exit(1)
+
+        deepest_previous_hash = get_deepest_previous_hash(file_path)
+
+        partialblock = struct.Struct(structformat)
+        file.seek(partialblock.size + 14) 
         prev_hashes = set()
         block_data = file.read(partialblock.size)
 
-        if block_data:
-            prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
-            if b"INITIAL" not in prev_hash:
-                print("bad initial block")
-                sys.exit(1)
+        try:
+            while block_data:
+                prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
 
+                # compare hashes
+                catstring = prev_hash + struct.pack("d", timestamp) + case_id + evidence_id + state + creator + owner + struct.pack("I", dlength)
+                current_hash = hashlib.sha256(catstring).hexdigest()
+                if current_hash != deepest_previous_hash:
+                    sys.exit(1)
 
-        while block_data:
-            prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = partialblock.unpack(block_data)
-            
-            # access evidence item ids
-            decrypted_ev_id = decrypt_aes_ecb(evidence_id)
-            evidence_int = int.from_bytes(decrypted_ev_id, byteorder='big')
-            
-            # check for bad sequences
-            if evidence_int in item_states:
-                if state.strip(b'\x00') == item_states[evidence_int]:
+                # access evidence item ids
+                decrypted_ev_id = decrypt_aes_ecb(evidence_id)
+                evidence_int = int.from_bytes(decrypted_ev_id, byteorder='big')
+                if prev_hash in prev_hashes:
                     sys.exit(1)
-                elif state.strip(b'\x00') == b"CHECKEDIN" and item_states[evidence_int] in ["RELEASED","DESTROYED","DISPOSED"]:
-                    sys.exit(1)
-                elif state.strip(b'\x00') == b"CHECKEDOUT" and item_states[evidence_int] in ["RELEASED","DESTROYED","DISPOSED"]:
-                    sys.exit(1)
-                elif state.strip(b'\x00') in ["RELEASED","DESTROYED","DISPOSED"] and item_states[evidence_int] != b"CHECKEDIN":
-                    sys.exit(1)
-            
-            # update hash map
-            item_states[evidence_int] = state.strip(b'\x00')
-            
-            # go to next block
-            block_data = file.read(partialblock.size)
+                prev_hashes.add(prev_hash)
+
+                # check for bad sequences
+                if evidence_int in item_states:
+                    if state.strip(b'\x00') == item_states[evidence_int]:
+                        sys.exit(1)
+                    elif state.strip(b'\x00') in [b"CHECKEDIN", b"CHECKEDOUT"] and item_states[evidence_int] in [b"RELEASED",b"DESTROYED",b"DISPOSED"]:
+                        sys.exit(1)
+                    elif state.strip(b'\x00') in ["RELEASED","DESTROYED","DISPOSED"] and item_states[evidence_int] != b"CHECKEDIN":
+                        sys.exit(1)
+                    elif state.strip(b'\x00') in ["RELEASED","DESTROYED","DISPOSED"] and decrypted_ev_id not in item_states:
+                        sys.exit(1)
+                # update hash map
+                item_states[evidence_int] = state.strip(b'\x00')
+
+                # go to next block
+                block_data = file.read(partialblock.size)
+
+        except struct.error:
+            exit("Invalid block after initial")
+
+# Example usage
+verify("blockchain_file.dat")
 
 
 
