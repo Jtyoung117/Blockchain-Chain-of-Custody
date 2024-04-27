@@ -52,7 +52,7 @@ show_history_parser.add_argument('-c', type=str, help="Case ID")
 show_history_parser.add_argument('-i', type=str, help="Item ID")
 show_history_parser.add_argument('-n', type=int, help="Number of entries")
 show_history_parser.add_argument('-r','--reverse', action='store_true', help="Reverse entries")
-show_history_parser.add_argument('-p', type=str, required=True, help="Password")
+show_history_parser.add_argument('-p', type=str, required=False, help="Password")
 
 # 'remove' command
 remove_parser = subparsers.add_parser("remove")
@@ -109,7 +109,7 @@ def create_genesis_block(file_path):
     with open(file_path, "wb") as file:
         # genesis block data
         prev_hash = b"\0" * 32
-        timestamp = 0
+        timestamp = floattime()
         case_id = b"0" * 32
         evidence_id = b"0" * 32
         state = b"INITIAL\0\0\0\0\0"
@@ -300,6 +300,10 @@ def parseblocks(file_path, parsetype, matchcase = "", matchevi = ""):
     blockstruct = struct.Struct(structformat)
     blocks = []
     with open(file_path, "rb") as file:
+        if parsetype == "AddAll":
+            block_data = file.read(blockstruct.size)
+            prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength = blockstruct.unpack(block_data)
+            blocks.append([prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength])
         file.seek(blockstruct.size + 14)
         currentbyte += blockstruct.size + 14
         block_data = file.read(blockstruct.size)
@@ -335,20 +339,21 @@ def parseblocks(file_path, parsetype, matchcase = "", matchevi = ""):
                 caseuuid = UUID(int=cintuuid)
                 if str(caseuuid) == matchcase:
                     blocks.append(evidence_id)
+            elif parsetype == "AddAll":
+                blocks.append([prev_hash, timestamp, case_id, evidence_id, state, creator, owner, dlength])
             currentbyte += blockstruct.size
             file.seek(currentbyte)
             block_data = file.read(blockstruct.size)
-        if not blocks:
-           exit("Blocks not found")
         return blocks
 
 def history(file_path):
     reverse = False
     caselist = []
+    numblocks = args.n
     if not check_genesis_block(file_path):
         exit("no genesis block")
-    if args.p not in passwordlist:
-        exit("invalid password")
+    #if args.p not in passwordlist:
+    #    exit("invalid password")
     if args.reverse:
         reverse = True
     if args.c and args.i:
@@ -357,34 +362,103 @@ def history(file_path):
         caselist = parseblocks(file_path,"MatchCase", args.c)
     elif args.i:
         caselist = parseblocks(file_path, "MatchEvi", "", args.i)
-    if args.n:
-        print(countblocks(file_path))
-    if caselist:
+    elif not args.c and not args.i:
+        caselist = parseblocks(file_path, "AddAll")
+    if caselist and not args.p:
+        for c in caselist:
+            print("Case: " + c[2].decode('utf-8'))
+            print("Item: " + c[3].decode('utf-8'))
+            strippedAction = (c[4].decode('utf-8')).strip("\0")
+            print("Action: " + strippedAction)
+            print("Time: " + isotime(c[1]) + "\n")
+    elif caselist and not numblocks:
         if not reverse:
             for c in caselist:
-                decrypteduuid = decrypt_aes_ecb(c[2])
-                cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
-                caseuuid = UUID(int=cintuuid)
-                print("Case: " + str(caseuuid))
-                decryptedevi = decrypt_aes_ecb(c[3])
-                eint = int.from_bytes(decryptedevi, byteorder = 'big')
-                print("Item: " + str(eint))
-                print("State: " + c[4].decode('utf-8'))
-                print("Time: " + isotime(c[1]) + "Z\n")
+                if c[2] != b"0"*32:
+                    decrypteduuid = decrypt_aes_ecb(c[2])
+                    cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+                    caseuuid = UUID(int=cintuuid)
+                    print("Case: " + str(caseuuid))
+                    decryptedevi = decrypt_aes_ecb(c[3])
+                    eint = int.from_bytes(decryptedevi, byteorder = 'big')
+                    print("Item: " + str(eint))
+                    strippedAction = (c[4].decode('utf-8')).strip("\0")
+                    print("Action: " + strippedAction)
+                    print("Time: " + isotime(c[1]) + "Z\n")
+                else:
+                    print("Case: " + b'00000000-0000-0000-0000-000000000000'.decode("utf-8"))
+                    print("Item: " + b'0'.decode("utf-8"))
+                    strippedAction = (c[4].decode('utf-8')).strip("\0")
+                    print("Action: " + strippedAction)
+                    print("Time: " + isotime(c[1]) + "Z\n")
                 
         else:
             caselist.reverse()
             for c in caselist:
-                decrypteduuid = decrypt_aes_ecb(c[2])
-                cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
-                caseuuid = UUID(int=cintuuid)
-                print("Case: " + str(caseuuid))
-                decryptedevi = decrypt_aes_ecb(c[3])
-                eint = int.from_bytes(decryptedevi, byteorder = 'big')
-                print("Item: " + str(eint))
-                print("State: " + c[4].decode('utf-8'))
-                print("Time: " + isotime(c[1]) + "Z")
-                print("\n")
+                if c[2] != b"0"*32:
+                    decrypteduuid = decrypt_aes_ecb(c[2])
+                    cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+                    caseuuid = UUID(int=cintuuid)
+                    print("Case: " + str(caseuuid))
+                    decryptedevi = decrypt_aes_ecb(c[3])
+                    eint = int.from_bytes(decryptedevi, byteorder = 'big')
+                    print("Item: " + str(eint))
+                    strippedAction = (c[4].decode('utf-8')).strip("\0")
+                    print("Action: " + strippedAction)
+                    print("Time: " + isotime(c[1]) + "Z\n")
+                else:
+                    print("Case: " + b'00000000-0000-0000-0000-000000000000'.decode("utf-8"))
+                    print("Item: " + b'0'.decode("utf-8"))
+                    strippedAction = (c[4].decode('utf-8')).strip("\0")
+                    print("Action: " + strippedAction)
+                    print("Time: " + isotime(c[1]) + "Z\n")
+    elif caselist and numblocks:
+        if not reverse:
+            for c in caselist:
+                if not numblocks:
+                    break
+                if c[2] != b"0"*32:
+                    decrypteduuid = decrypt_aes_ecb(c[2])
+                    cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+                    caseuuid = UUID(int=cintuuid)
+                    print("Case: " + str(caseuuid))
+                    decryptedevi = decrypt_aes_ecb(c[3])
+                    eint = int.from_bytes(decryptedevi, byteorder = 'big')
+                    print("Item: " + str(eint))
+                    strippedAction = (c[4].decode('utf-8')).strip("\0")
+                    print("Action: " + strippedAction)
+                    print("Time: " + isotime(c[1]) + "Z\n")
+                else:
+                    print("Case: " + b'00000000-0000-0000-0000-000000000000'.decode("utf-8"))
+                    print("Item: " + b'0'.decode("utf-8"))
+                    strippedAction = (c[4].decode('utf-8')).strip("\0")
+                    print("Action: " + strippedAction)
+                    print("Time: " + isotime(c[1]) + "Z\n")
+                numblocks -= 1
+                
+        else:
+            caselist.reverse()
+            for c in caselist:
+                if not numblocks:
+                    break
+                if c[2] != b"\0"*32:
+                    decrypteduuid = decrypt_aes_ecb(c[2])
+                    cintuuid = int.from_bytes(decrypteduuid, byteorder='big')
+                    caseuuid = UUID(int=cintuuid)
+                    print("Case: " + str(caseuuid))
+                    decryptedevi = decrypt_aes_ecb(c[3])
+                    eint = int.from_bytes(decryptedevi, byteorder = 'big')
+                    print("Item: " + str(eint))
+                    strippedAction = (c[4].decode('utf-8')).strip("\0")
+                    print("Action: " + strippedAction)
+                    print("Time: " + isotime(c[1]) + "Z\n")
+                else:
+                    print("Case: " + b'00000000-0000-0000-0000-000000000000'.decode("utf-8"))
+                    print("Item: " + b'0'.decode("utf-8"))
+                    strippedAction = (c[4].decode('utf-8')).strip("\0")
+                    print("Action: " + strippedAction)
+                    print("Time: " + isotime(c[1]) + "Z\n")
+                numblocks -= 1
                 
 def showcases(file_path):
     caselist = parseblocks(file_path, "GetCases")
@@ -396,10 +470,12 @@ def showcases(file_path):
 
 def showitems(file_path):
     itemlist = parseblocks(file_path, "GetItems", args.c)
+    itemlist = list(set(itemlist))
     for i in itemlist:
         decryptedevi = decrypt_aes_ecb(i)
         eint = int.from_bytes(decryptedevi, byteorder = 'big')
         print(str(eint) + "\n")
+        
                 
 def removecase(file_path):
     item_id = args.i
